@@ -1,0 +1,47 @@
+# .github/workflows/deploy.yml
+# Deploys the BACDA Calgary static site to SiteGround on every push to main.
+#
+# Repository secrets needed (Settings > Secrets and variables > Actions):
+#   SG_HOST         SSH hostname from Site Tools > Devs > SSH Keys Manager > SSH Credentials
+#   SG_USER         SSH username from the same screen (e.g. u123-abc456)
+#   SG_SSH_KEY      PRIVATE key whose public half you imported into SSH Keys Manager
+#                   (generate it without a passphrase: ssh-keygen -t ed25519 -f sg_deploy -N "")
+#
+# SiteGround uses SSH port 18765, not 22.
+
+name: Deploy to SiteGround
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # lets you trigger a deploy by hand from the Actions tab
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the site
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SG_SSH_KEY }}" > ~/.ssh/sg_deploy
+          chmod 600 ~/.ssh/sg_deploy
+          ssh-keyscan -p 18765 -H "${{ secrets.SG_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload files with rsync
+        run: |
+          rsync -avz --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'README.txt' \
+            --exclude 'README.md' \
+            --filter 'protect .htaccess' \
+            --filter 'protect .well-known/' \
+            -e "ssh -p 18765 -i ~/.ssh/sg_deploy" \
+            ./ "${{ secrets.SG_USER }}@${{ secrets.SG_HOST }}:www/bacdacalgary.ca/public_html/"
